@@ -5,12 +5,12 @@ import (
 	"reflect"
 	"strconv"
 	"sync"
+	"time"
 )
 
 type redisObject struct {
 	datatype reflect.Type
 	value    interface{}
-	mu       sync.RWMutex
 }
 
 type multiCommand struct {
@@ -20,6 +20,7 @@ type multiCommand struct {
 type Redis struct {
 	dict             map[string]redisObject
 	mu               sync.RWMutex
+	ttl  		 	 map[string]int64
 	multiCommand     multiCommand
 	isMultiCommandOn bool
 }
@@ -59,13 +60,15 @@ func (r *Redis) Discard() {
 	r.multiCommand.commands = nil
 }
 
+func (r *Redis) SetTTL(key string, ttl int) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.ttl[key] = time.Now().Add(time.Duration(ttl) * time.Second).Unix()
+}
+
 func (r *Redis) Set(key string, value interface{}) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-
-	if isNumber(value.(string)) {
-		value, _ = strconv.ParseFloat(value.(string), 64)
-	}
 
 	r.dict[key] = redisObject{
 		datatype: reflect.TypeOf(value),
