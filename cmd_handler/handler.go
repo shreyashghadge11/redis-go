@@ -47,44 +47,28 @@ func executeMultiCommands(multiCommand []string, conn net.Conn, redisCache *redi
 }
 
 func execute(cmd string, args []string, conn net.Conn, redisCache *redis.Redis) {
-	key := strings.TrimSpace(args[1])
 	switch cmd {
 	case "SET":
 		handleSetCommand(redisCache, args, conn)
 	case "GET":
-		val := redisCache.Get(key)
-		if val == nil {
-			conn.Write([]byte("(nil)\n"))
-		} else {
-			conn.Write([]byte(fmt.Sprintf("%v\n", val)))
-		}
+		handleGetCommand(redisCache, args, conn)
+	case "EXISTS":
+		handleExistsCommand(redisCache, args, conn)
 	case "DEL":
-		if redisCache.Del(key) {
-			conn.Write([]byte("1\n"))
-		} else {
-			conn.Write([]byte("0\n"))
-		}
+		handleDeleteCommand(redisCache, args, conn)
 	case "INCR":
-		if redisCache.Increment(key) {
-			conn.Write([]byte("1\n"))
-		} else {
-			conn.Write([]byte("0\n"))
-		}
+		handleIncrCommand(redisCache, args, conn)
 	case "INCRBY":
-		if len(args) < 3 {
-			conn.Write([]byte("Invalid command\n"))
-			return
-		}
-		increment, err := strconv.ParseFloat(strings.TrimSpace(args[2]), 64)
-		if err != nil {
-			conn.Write([]byte("Invalid command\n"))
-			return
-		}
-		if redisCache.IncrementBy(key, float64(increment)) {
-			conn.Write([]byte("1\n"))
-		} else {
-			conn.Write([]byte("0\n"))
-		}
+		handleIncrByCommand(redisCache, args, conn)
+	case "DECR":
+		handleIncrCommand(redisCache, args, conn)
+	case "DECRBY":
+		handleIncrByCommand(redisCache, args, conn)
+	case "PING":
+		conn.Write([]byte("PONG\n"))
+	case "FLUSHALL":
+		redisCache.FlushAll()
+		conn.Write([]byte("OK\n"))
 	default:
 		conn.Write([]byte("Invalid command\n"))
 	}
@@ -96,8 +80,15 @@ func handleSetCommand(redisCache *redis.Redis, args []string, conn net.Conn) {
 		return
 	}
 	key := strings.TrimSpace(args[1])
-	value := strings.TrimSpace(args[2])
-	redisCache.Set(key, value)
+	val := strings.TrimSpace(args[2])
+
+	if intVal, err := strconv.Atoi(val); err == nil {
+		redisCache.Set(key, intVal)
+	} else if floatVal, err := strconv.ParseFloat(val, 64); err == nil {
+		redisCache.Set(key, floatVal)
+	} else {
+		redisCache.Set(key, val) // Default to string
+	}
 
 	if len(args) > 4 {
 		if args[3] == "EX" {
@@ -106,8 +97,82 @@ func handleSetCommand(redisCache *redis.Redis, args []string, conn net.Conn) {
 				conn.Write([]byte("Invalid command\n"))
 				return
 			}
+			ttl = ttl * 60 // Convert to seconds
 			redisCache.SetTTL(key, ttl)
 		}
+	} else {
+		redisCache.SetTTL(key, 600) // Default TTL
 	}
 	conn.Write([]byte("OK\n"))
+}
+
+func handleGetCommand(redisCache *redis.Redis, args []string, conn net.Conn) {
+	if len(args) < 2 {
+		conn.Write([]byte("Invalid command\n"))
+		return
+	}
+	key := strings.TrimSpace(args[1])
+	value := redisCache.Get(key)
+	if value == nil {
+		conn.Write([]byte("nil\n"))
+	} else {
+		conn.Write([]byte(fmt.Sprintf("%v\n", value)))
+	}
+}
+
+func handleExistsCommand(redisCache *redis.Redis, args []string, conn net.Conn) {
+	if len(args) < 2 {
+		conn.Write([]byte("Invalid command\n"))
+		return
+	}
+	key := strings.TrimSpace(args[1])
+	if redisCache.Get(key) != nil {
+		conn.Write([]byte("1\n"))
+	} else {
+		conn.Write([]byte("0\n"))
+	}
+}
+
+func handleDeleteCommand(redisCache *redis.Redis, args []string, conn net.Conn) {
+	if len(args) < 2 {
+		conn.Write([]byte("Invalid command\n"))
+		return
+	}
+	key := strings.TrimSpace(args[1])
+	if redisCache.Del(key) {
+		conn.Write([]byte("1\n"))
+	} else {
+		conn.Write([]byte("0\n"))
+	}
+}
+
+func handleIncrCommand(redisCache *redis.Redis, args []string, conn net.Conn) {
+	if len(args) < 2 {
+		conn.Write([]byte("Invalid command\n"))
+		return
+	}
+	key := strings.TrimSpace(args[1])
+	if _, err := redisCache.Increment(key, 1.0); err == nil {
+		conn.Write([]byte("OK\n"))
+	} else {
+		conn.Write([]byte("Error: " + err.Error() + "\n"))	
+	}
+}
+
+func handleIncrByCommand(redisCache *redis.Redis, args []string, conn net.Conn) {
+	if len(args) < 3 {
+		conn.Write([]byte("Invalid command\n"))
+		return
+	}
+	key := strings.TrimSpace(args[1])
+	increment, err := strconv.ParseFloat(strings.TrimSpace(args[2]), 64)
+	if err != nil {
+		conn.Write([]byte("Invalid command\n"))
+		return
+	}
+	if _, err := redisCache.Increment(key, float64(increment)); err == nil {
+		conn.Write([]byte("OK\n"))
+	} else {
+		conn.Write([]byte("Error: " + err.Error() + "\n"))	
+	}
 }
