@@ -5,9 +5,10 @@ import (
 	"fmt"
 	"net"
 	"strings"
+	"time"
 
+	handler "github.com/shreyashghadge11/redis-go/cmd_handler"
 	"github.com/shreyashghadge11/redis-go/redis"
-	"github.com/shreyashghadge11/redis-go/cmd_handler"
 )
 
 func main() {
@@ -58,3 +59,8 @@ func handleConnection(conn net.Conn, redisCache *redis.Redis) {
 	}
 }
 
+func ExpiredKeyCleanup(redisCache *redis.Redis) {
+	for {
+		time.Sleep(60 * time.Second)
+	}
+}

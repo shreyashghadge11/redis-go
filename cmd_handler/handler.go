@@ -9,34 +9,35 @@ import (
 
 func HandleCommand(redisCache *redis.Redis, args []string, conn net.Conn) {
 	cmd := strings.ToUpper(args[0])
+	connAddr := conn.RemoteAddr().String()
 
 	switch cmd {
 	case "MULTI":
+		redisCache.StartMultiCmds(connAddr)
 		conn.Write([]byte("OK\n"))
-		redisCache.Multi()
 	case "EXEC":
-		isMultiOn := redisCache.Status()
+		isMultiOn := redisCache.MultiCmdStatus(connAddr)
 		if isMultiOn {
-			conn.Write([]byte("OK\n"))
-			commands := redisCache.Exec()
+			commands := redisCache.GetMultiCommands(connAddr)
 			executeMultiCommands(commands, conn, redisCache)
-
+			redisCache.Discard(connAddr)
+			conn.Write([]byte("OK\n"))
 		} else {
 			conn.Write([]byte("Error: MULTI not set\n"))
 		}
 	case "DISCARD":
-		redisCache.Discard()
+		redisCache.Discard(connAddr)
 		conn.Write([]byte("OK\n"))
 	default:
-		if redisCache.Status() {
-			redisCache.AddToMultiCommand(strings.Join(args, " "))
+		if redisCache.MultiCmdStatus(connAddr) {
+			redisCache.AddToMultiCommand(connAddr, strings.TrimSpace(strings.Join(args, " ")))
 			conn.Write([]byte("QUEUED\n"))
 		} else {
 			execute(cmd, args, conn, redisCache)
 		}
 	}
 
-}
+}		
 
 func executeMultiCommands(multiCommand []string, conn net.Conn, redisCache *redis.Redis) {
 	for _, command := range multiCommand {

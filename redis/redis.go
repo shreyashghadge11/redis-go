@@ -3,7 +3,6 @@ package redis
 import (
 	"fmt"
 	"reflect"
-	"strconv"
 	"sync"
 	"time"
 )
@@ -31,33 +30,6 @@ func NewRedis() *Redis {
 		ttl:          make(map[string]int64),
 		multiCommand: make(map[string]multiCommand),
 	}
-}
-
-func isNumber(s string) bool {
-	_, errInt := strconv.Atoi(s)
-	_, errFloat := strconv.ParseFloat(s, 64)
-
-	return errInt == nil || errFloat == nil
-}
-
-func (r *Redis) Multi() {
-}
-
-func (r *Redis) Status() bool {
-	return r.isMultiCommandOn
-}
-
-func (r *Redis) AddToMultiCommand(command string) {
-	r.multiCommand.commands = append(r.multiCommand.commands, command)
-}
-
-func (r *Redis) Exec() []string {
-	return r.multiCommand.commands
-}
-
-func (r *Redis) Discard() {
-	r.isMultiCommandOn = false
-	r.multiCommand.commands = nil
 }
 
 func (r *Redis) SetTTL(key string, ttl int) {
@@ -138,4 +110,53 @@ func (r *Redis) Increment(key string, val float64) (bool, error) {
 	// Store updated object
 	r.dict[key] = obj
 	return true, nil
+}
+
+func (r *Redis) StartMultiCmds(connKey string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	r.multiCommand[connKey] = multiCommand{
+		commands:         []string{},
+		isMultiCommandOn: true,
+	}
+}
+
+func (r *Redis) MultiCmdStatus(connKey string) bool {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	if cmd, ok := r.multiCommand[connKey]; ok {
+		return cmd.isMultiCommandOn
+	}
+	return false
+}
+
+func (r *Redis) GetMultiCommands(connKey string) []string {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	if cmd, ok := r.multiCommand[connKey]; ok {
+		return cmd.commands
+	}
+	return nil
+}
+
+func (r *Redis) AddToMultiCommand(connKey string, command string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	if cmd, ok := r.multiCommand[connKey]; ok {
+		cmd.commands = append(cmd.commands, command)
+		r.multiCommand[command] = cmd
+	}
+}
+
+func (r *Redis) Discard(connKey string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	if _, ok := r.multiCommand[connKey]; ok {
+		delete(r.multiCommand, connKey)
+	}
 }
